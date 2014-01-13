@@ -6,6 +6,11 @@ void qtp_setup() {
 	accel_tap_service_subscribe(&qtp_tap_handler);
 	qtp_bluetooth_image = gbitmap_create_with_resource(RESOURCE_ID_QTP_IMG_BT);
 	qtp_battery_image = gbitmap_create_with_resource(RESOURCE_ID_QTP_IMG_BAT);
+
+	if (qtp_conf & QTP_K_SUBSCRIBE) {
+		qtp_bluetooth_status = bluetooth_connection_service_peek();
+		bluetooth_connection_service_subscribe( qtp_bluetooth_callback );
+	}
 	
 	if (qtp_is_show_weather()) {
 		qtp_setup_app_message();
@@ -61,8 +66,10 @@ void qtp_update_weather_icon(int icon_index, bool remove_old, bool mark_dirty) {
 void qtp_update_bluetooth_status(bool mark_dirty) {
 	static char bluetooth_text[] = "Not Paired";
 
-	if (bluetooth_connection_service_peek()) {
+	if (qtp_bluetooth_status) {
 		snprintf(bluetooth_text, sizeof(bluetooth_text), "Paired");
+	} else {
+		snprintf(bluetooth_text, sizeof(bluetooth_text), "Not Paired");
 	}
 
 	text_layer_set_text(qtp_bluetooth_text_layer, bluetooth_text);
@@ -136,6 +143,22 @@ static void qtp_sync_changed_callback(const uint32_t key, const Tuple* new_tuple
 
 	}
 
+}
+
+void qtp_bluetooth_callback(bool connected) {
+	APP_LOG(APP_LOG_LEVEL_DEBUG, "QTP: bluetooth status callback: %d", connected);
+	if (qtp_should_vibrate()) {
+		if (connected) {
+			vibes_short_pulse();
+		} else {
+			vibes_double_pulse();
+		}
+	}
+
+	qtp_bluetooth_status = connected;
+	if (qtp_is_showing) {
+		qtp_update_bluetooth_status(false);
+	}
 }
 
 /* Clear out the display on failure */
@@ -235,6 +258,7 @@ void qtp_init() {
 
 
 	/* Bluetooth Status text layer */
+
 	GRect bluetooth_frame = GRect(40,qtp_bluetooth_y(), QTP_SCREEN_WIDTH - QTP_BT_ICON_SIZE, QTP_BT_ICON_SIZE);
 	qtp_bluetooth_text_layer =  text_layer_create(bluetooth_frame);
 	text_layer_set_font(qtp_bluetooth_text_layer, fonts_get_system_font(FONT_KEY_GOTHIC_28));
@@ -280,6 +304,9 @@ void qtp_deinit() {
 
 /* Deallocate persistent QTPlus items when watchface exits */
 void qtp_app_deinit() {
+	if (qtp_conf & QTP_K_SUBSCRIBE) {
+		bluetooth_connection_service_unsubscribe();
+	}
 	gbitmap_destroy(qtp_battery_image);
 	gbitmap_destroy(qtp_bluetooth_image);
 	app_sync_deinit(&qtp_sync);
@@ -319,6 +346,10 @@ bool qtp_is_invert() {
 	return (qtp_conf & QTP_K_INVERT) == QTP_K_INVERT;
 }
 
+bool qtp_should_vibrate() {
+	return (qtp_conf & QTP_K_VIBRATE) == QTP_K_VIBRATE;
+}
+
 int qtp_battery_y() {
 	if (qtp_is_show_time()) {
 		return QTP_BATTERY_BASE_Y + QTP_TIME_HEIGHT + QTP_PADDING_Y;
@@ -342,4 +373,12 @@ int qtp_weather_y() {
 	} else {
 		return QTP_WEATHER_BASE_Y + QTP_PADDING_Y;
 	}
+}
+
+void qtp_set_config(int config) {
+	qtp_conf = config;
+}
+
+void qtp_set_timeout(int timeout) {
+	QTP_WINDOW_TIMEOUT = timeout;	
 }
